@@ -1,0 +1,51 @@
+{
+  "name": "@mcp-servers/baserow",
+  "version": "0.1.0",
+  "description": "MCP server for Baserow API integration - Enable AI assistants to interact with Baserow databases",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prepare": "npm run build",
+    "lint": "tsc --noEmit",
+    "test": "echo \"Tests coming soon\" && exit 0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "baserow",
+    "database",
+    "api",
+    "claude",
+    "cursor",
+    "windsurf",
+    "ai",
+    "ai-assistant",
+    "automation",
+    "mcp-server"
+  ],
+  "author": "Ayyaz Zafar <ayyaz.zaffar@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayyazzafar/mcp-baserow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ayyazzafar/mcp-baserow/issues"
+  },
+  "homepage": "https://github.com/ayyazzafar/mcp-baserow#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
