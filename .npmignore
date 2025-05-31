@@ -1,0 +1,51 @@
+# Source files
+src/
+*.ts
+!dist/**/*.d.ts
+
+# Configuration files
+.env
+.env.*
+tsconfig.json
+.gitignore
+.npmignore
+
+# Development files
+examples/
+test/
+*.test.js
+*.test.ts
+
+# Documentation source
+docs/
+*.md
+!README.md
+!LICENSE
+
+# CI/CD
+.github/
+.travis.yml
+.gitlab-ci.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
