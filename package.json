@@ -1,5 +1,5 @@
 {
-  "name": "@mcp-servers/baserow",
+  "name": "@ayyazzafar/mcp-baserow",
   "version": "0.1.0",
   "description": "MCP server for Baserow API integration - Enable AI assistants to interact with Baserow databases",
   "main": "dist/index.js",
@@ -47,5 +47,14 @@
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
