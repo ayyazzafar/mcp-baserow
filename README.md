@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ayyazzafar-mcp-baserow-badge.png)](https://mseep.ai/app/ayyazzafar-mcp-baserow)
+
 # Baserow MCP Server
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue.svg)](https://modelcontextprotocol.io)
