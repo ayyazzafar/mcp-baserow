@@ -17,7 +17,9 @@ import {
   UpdateRowParams,
   BatchCreateRowsParams,
   BatchUpdateRowsParams,
-  BatchDeleteRowsParams
+  BatchDeleteRowsParams,
+  CreateFieldParams,
+  UpdateFieldParams
 } from './types/baserow';
 import { AuthManager } from './auth-manager.js';
 
@@ -133,6 +135,28 @@ export class BaserowClient {
       `/api/database/fields/table/${tableId}/`
     );
     return response.data;
+  }
+
+  async createField(params: CreateFieldParams): Promise<Field> {
+    const { table_id, ...fieldData } = params;
+    const response = await this.axios.post<Field>(
+      `/api/database/fields/table/${table_id}/`,
+      fieldData
+    );
+    return response.data;
+  }
+
+  async updateField(params: UpdateFieldParams): Promise<Field> {
+    const { field_id, ...fieldData } = params;
+    const response = await this.axios.patch<Field>(
+      `/api/database/fields/${field_id}/`,
+      fieldData
+    );
+    return response.data;
+  }
+
+  async deleteField(fieldId: number): Promise<void> {
+    await this.axios.delete(`/api/database/fields/${fieldId}/`);
   }
 
   // Row operations

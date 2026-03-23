@@ -131,3 +131,17 @@ export interface BatchDeleteRowsParams {
   table_id: number;
   row_ids: number[];
 }
+
+export interface CreateFieldParams {
+  table_id: number;
+  name: string;
+  type: string;
+  [key: string]: any; // Field-type specific properties
+}
+
+export interface UpdateFieldParams {
+  field_id: number;
+  name?: string;
+  type?: string;
+  [key: string]: any; // Field-type specific properties
+}
