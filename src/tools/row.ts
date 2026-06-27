@@ -1,6 +1,6 @@
 import { BaserowClient } from '../baserow-client.js';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { guardReceipt } from '../receipt-guard.js';
+import { runDeleteRowGuarded, runBatchDeleteRowsGuarded } from '../receipt-guard.js';
 
 // Reusable schema for the EMILIA authorization receipt carried as a tool argument
 // (the MCP stdio equivalent of an HTTP receipt header). Optional in the schema so
@@ -253,19 +253,19 @@ export async function handleRowTools(
         throw new Error('table_id and row_id are required');
       }
       // Bind the receipt to THIS exact row, not just "a delete": a receipt
-      // approving baserow.row.delete:5:11 cannot delete row 99 in table 5.
-      const guard = await guardReceipt(
-        `baserow.row.delete:${args.table_id}:${args.row_id}`,
-        args?.authorization_receipt
+      // approving baserow.row.delete:5:11 cannot delete row 99 in table 5. The
+      // gate verifies+reserves, runs the delete, then consumes the receipt only
+      // AFTER it succeeds (failure releases it, keeping the approval retryable).
+      const guard = await runDeleteRowGuarded(
+        args.table_id,
+        args.row_id,
+        args?.authorization_receipt,
+        () => client.deleteRow(args.table_id, args.row_id)
       );
       if (!guard.ok) {
-        result = guard.challenge;
+        result = guard.body;
         break;
       }
-      await client.deleteRow(args.table_id, args.row_id);
-      // Consume the receipt only AFTER the delete succeeds; if deleteRow threw,
-      // commit is never reached and the approval stays retryable.
-      guard.commit();
       result = {
         success: true,
         message: `Row ${args.row_id} deleted successfully`,
@@ -298,26 +298,25 @@ export async function handleRowTools(
       if (!args?.table_id || !args?.row_ids || !Array.isArray(args.row_ids)) {
         throw new Error('table_id and row_ids array are required');
       }
-      // Bind the receipt to THIS exact table + set of rows. row_ids are sorted
-      // numerically so the binding is order-independent: a receipt approving
-      // {3,5,9} authorizes exactly {3,5,9}, never a different set.
-      const sortedRowIds = [...args.row_ids]
-        .map((id: unknown) => Number(id))
-        .sort((a, b) => a - b);
-      const guard = await guardReceipt(
-        `baserow.rows.batch_delete:${args.table_id}:${sortedRowIds.join(',')}`,
-        args?.authorization_receipt
+      // Bind the receipt to THIS exact table + set of rows. The gate folds the
+      // numerically-sorted row ids into the bound action so the binding is
+      // order-independent: a receipt approving {3,5,9} authorizes exactly
+      // {3,5,9}, never a different set. Consume-after-success / replay refusal /
+      // sanitized rejection all come from the gate.
+      const guard = await runBatchDeleteRowsGuarded(
+        args.table_id,
+        args.row_ids,
+        args?.authorization_receipt,
+        () =>
+          client.batchDeleteRows({
+            table_id: args.table_id,
+            row_ids: args.row_ids
+          })
       );
       if (!guard.ok) {
-        result = guard.challenge;
+        result = guard.body;
         break;
       }
-      await client.batchDeleteRows({
-        table_id: args.table_id,
-        row_ids: args.row_ids
-      });
-      // Consume the receipt only AFTER the batch delete succeeds.
-      guard.commit();
       result = {
         success: true,
         message: `${args.row_ids.length} rows deleted successfully`,

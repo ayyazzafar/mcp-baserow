@@ -1,7 +1,4 @@
-import type {
-  VerifyResult,
-  ChallengeOptions
-} from '@emilia-protocol/require-receipt';
+import type { ReceiptGate, RunResult } from '@emilia-protocol/require-receipt';
 
 // @emilia-protocol/require-receipt is ESM-only while this server compiles to
 // CommonJS, so load it via a real dynamic import() that tsc won't downlevel to
@@ -20,88 +17,64 @@ function loadModule(): Promise<RequireReceiptModule> {
   return modulePromise;
 }
 
-// One-time consumption: receipt_ids consumed by this process cannot be replayed.
-const consumedReceiptIds = new Set<string>();
-
-export type GuardResult =
-  | { ok: true; receiptId: string; commit: () => void }
-  | { ok: false; challenge: Record<string, unknown> };
+// All the hardening (per-target binding, verify, replay refusal, consume-after-
+// success, sanitized {reason} rejections) now lives in the canonical
+// makeReceiptGate. This file just builds one gate per irreversible action — each
+// `action` is a function so the EXACT bound action string is derived here — and
+// caches it across the async module load. NOTE: allowInlineKey accepts the
+// receipt's own key (proves integrity, not trust); in production pin trustedKeys
+// to the issuers you trust and drop allowInlineKey.
+const gates = new Map<string, Promise<ReceiptGate>>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getGate(key: string, action: (target: any) => string): Promise<ReceiptGate> {
+  let gate = gates.get(key);
+  if (!gate) {
+    gate = loadModule().then(({ makeReceiptGate }) =>
+      makeReceiptGate({ action, allowInlineKey: true, maxAgeSec: 900 })
+    );
+    gates.set(key, gate);
+  }
+  return gate;
+}
 
 /**
- * Demand a verifiable EMILIA authorization receipt before an irreversible action.
- *
- * On success, returns the receipt id PLUS a `commit()` callback. The receipt is
- * NOT marked consumed until the caller invokes `commit()` — which the caller MUST
- * do only AFTER the irreversible action has actually succeeded. If the action
- * throws, `commit()` is never called and the approval stays retryable (it was
- * never spent on a delete that didn't happen). Replay protection is enforced at
- * verify time (not-already-consumed check below), so a receipt can never drive
- * two deletes even before commit.
- *
- * On failure, returns a machine-readable Receipt Required challenge (HTTP 428
- * shape) the agent can act on — the MCP tool-result equivalent of answering 428.
- * Rejection detail is sanitized to a minimal `{ rejected: { reason } }` shape so
- * no signer, subject, or library internals leak to the caller. This is portable
- * accountability evidence the service keeps for its own liability; it is not auth
- * or permissions.
+ * Demand a verifiable EMILIA authorization receipt for a single-row delete,
+ * bound to THIS exact table + row: a receipt approving `baserow.row.delete:5:11`
+ * cannot delete row 99. gate.run verifies+reserves, runs `fn`, then consumes the
+ * receipt only AFTER it succeeds — if `fn` throws the approval is released (stays
+ * retryable) and the error propagates. Replay is refused; a verification failure
+ * returns a sanitized Receipt Required challenge ({ rejected: { reason } }).
  */
-export async function guardReceipt(
-  action: string,
-  receipt: unknown
-): Promise<GuardResult> {
-  const { verifyEmiliaReceipt, receiptChallenge, RECEIPT_REQUIRED_STATUS } =
-    await loadModule();
+export async function runDeleteRowGuarded(
+  tableId: number | string,
+  rowId: number | string,
+  receipt: unknown,
+  fn: () => Promise<void>
+): Promise<RunResult> {
+  const gate = await getGate(
+    'delete_row',
+    (t: { tableId: unknown; rowId: unknown }) => `baserow.row.delete:${t.tableId}:${t.rowId}`
+  );
+  return gate.run(receipt, { target: { tableId, rowId } }, fn);
+}
 
-  const challengeOpts: ChallengeOptions = {
-    status: RECEIPT_REQUIRED_STATUS,
-    maxAgeSec: 900
-  };
-
-  if (!receipt) {
-    return {
-      ok: false,
-      challenge: receiptChallenge(action, 'No EMILIA receipt presented.', challengeOpts)
-    };
-  }
-
-  // NOTE: allowInlineKey accepts the receipt's own key (proves integrity, not
-  // trust). In production, pin trustedKeys to the issuers you trust and drop
-  // allowInlineKey.
-  const verified: VerifyResult = verifyEmiliaReceipt(receipt, {
-    allowInlineKey: true,
-    action,
-    maxAgeSec: 900
+/**
+ * Same semantics for a batch-row delete, bound to THIS exact table + set of rows.
+ * row ids are sorted numerically so the binding is order-independent: a receipt
+ * approving {3,5,9} authorizes exactly {3,5,9}, never a different set.
+ */
+export async function runBatchDeleteRowsGuarded(
+  tableId: number | string,
+  rowIds: ReadonlyArray<number | string>,
+  receipt: unknown,
+  fn: () => Promise<void>
+): Promise<RunResult> {
+  const gate = await getGate('batch_delete_rows', (t: {
+    tableId: unknown;
+    rowIds: ReadonlyArray<number | string>;
+  }) => {
+    const sorted = [...t.rowIds].map(Number).sort((a, b) => a - b);
+    return `baserow.rows.batch_delete:${t.tableId}:${sorted.join(',')}`;
   });
-
-  if (!verified.ok || !verified.receipt_id) {
-    return {
-      ok: false,
-      challenge: {
-        ...receiptChallenge(action, `Receipt rejected: ${verified.reason}.`, challengeOpts),
-        // Sanitized: never echo the full verified object (signer/subject/detail).
-        rejected: { reason: verified.reason ?? 'receipt_invalid' }
-      }
-    };
-  }
-
-  if (consumedReceiptIds.has(verified.receipt_id)) {
-    return {
-      ok: false,
-      challenge: {
-        ...receiptChallenge(action, 'Receipt already consumed (replay refused).', challengeOpts),
-        rejected: { reason: 'receipt_replayed' }
-      }
-    };
-  }
-
-  const receiptId = verified.receipt_id;
-  return {
-    ok: true,
-    receiptId,
-    // Consume-after-success: the caller commits ONLY after the irreversible
-    // action succeeds. Idempotent — a double-commit is a no-op.
-    commit: () => {
-      consumedReceiptIds.add(receiptId);
-    }
-  };
+  return gate.run(receipt, { target: { tableId, rowIds } }, fn);
 }
