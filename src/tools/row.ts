@@ -1,5 +1,17 @@
 import { BaserowClient } from '../baserow-client.js';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { guardReceipt } from '../receipt-guard.js';
+
+// Reusable schema for the EMILIA authorization receipt carried as a tool argument
+// (the MCP stdio equivalent of an HTTP receipt header). Optional in the schema so
+// a missing receipt returns a structured Receipt Required challenge rather than a
+// schema validation error.
+const authorizationReceiptSchema = {
+  type: 'object',
+  description:
+    'An EMILIA authorization receipt proving a named human approved this exact deletion. Required to execute.',
+  additionalProperties: true
+} as const;
 
 export function getRowToolSchemas(): Tool[] {
   return [
@@ -106,7 +118,8 @@ export function getRowToolSchemas(): Tool[] {
           row_id: {
             type: 'number',
             description: 'The ID of the row to delete'
-          }
+          },
+          authorization_receipt: authorizationReceiptSchema
         },
         required: ['table_id', 'row_id']
       }
@@ -178,7 +191,8 @@ export function getRowToolSchemas(): Tool[] {
             items: {
               type: 'number'
             }
-          }
+          },
+          authorization_receipt: authorizationReceiptSchema
         },
         required: ['table_id', 'row_ids']
       }
@@ -234,16 +248,23 @@ export async function handleRowTools(
       });
       break;
 
-    case 'baserow_delete_row':
+    case 'baserow_delete_row': {
       if (!args?.table_id || !args?.row_id) {
         throw new Error('table_id and row_id are required');
+      }
+      const guard = await guardReceipt('baserow.row.delete', args?.authorization_receipt);
+      if (!guard.ok) {
+        result = guard.challenge;
+        break;
       }
       await client.deleteRow(args.table_id, args.row_id);
       result = {
         success: true,
-        message: `Row ${args.row_id} deleted successfully`
+        message: `Row ${args.row_id} deleted successfully`,
+        authorization_receipt_id: guard.receiptId
       };
       break;
+    }
 
     case 'baserow_batch_create_rows':
       if (!args?.table_id || !args?.rows || !Array.isArray(args.rows)) {
@@ -265,9 +286,14 @@ export async function handleRowTools(
       });
       break;
 
-    case 'baserow_batch_delete_rows':
+    case 'baserow_batch_delete_rows': {
       if (!args?.table_id || !args?.row_ids || !Array.isArray(args.row_ids)) {
         throw new Error('table_id and row_ids array are required');
+      }
+      const guard = await guardReceipt('baserow.rows.batch_delete', args?.authorization_receipt);
+      if (!guard.ok) {
+        result = guard.challenge;
+        break;
       }
       await client.batchDeleteRows({
         table_id: args.table_id,
@@ -275,9 +301,11 @@ export async function handleRowTools(
       });
       result = {
         success: true,
-        message: `${args.row_ids.length} rows deleted successfully`
+        message: `${args.row_ids.length} rows deleted successfully`,
+        authorization_receipt_id: guard.receiptId
       };
       break;
+    }
 
     default:
       throw new Error(`Unknown row tool: ${toolName}`);
