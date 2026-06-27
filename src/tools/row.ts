@@ -252,12 +252,20 @@ export async function handleRowTools(
       if (!args?.table_id || !args?.row_id) {
         throw new Error('table_id and row_id are required');
       }
-      const guard = await guardReceipt('baserow.row.delete', args?.authorization_receipt);
+      // Bind the receipt to THIS exact row, not just "a delete": a receipt
+      // approving baserow.row.delete:5:11 cannot delete row 99 in table 5.
+      const guard = await guardReceipt(
+        `baserow.row.delete:${args.table_id}:${args.row_id}`,
+        args?.authorization_receipt
+      );
       if (!guard.ok) {
         result = guard.challenge;
         break;
       }
       await client.deleteRow(args.table_id, args.row_id);
+      // Consume the receipt only AFTER the delete succeeds; if deleteRow threw,
+      // commit is never reached and the approval stays retryable.
+      guard.commit();
       result = {
         success: true,
         message: `Row ${args.row_id} deleted successfully`,
@@ -290,7 +298,16 @@ export async function handleRowTools(
       if (!args?.table_id || !args?.row_ids || !Array.isArray(args.row_ids)) {
         throw new Error('table_id and row_ids array are required');
       }
-      const guard = await guardReceipt('baserow.rows.batch_delete', args?.authorization_receipt);
+      // Bind the receipt to THIS exact table + set of rows. row_ids are sorted
+      // numerically so the binding is order-independent: a receipt approving
+      // {3,5,9} authorizes exactly {3,5,9}, never a different set.
+      const sortedRowIds = [...args.row_ids]
+        .map((id: unknown) => Number(id))
+        .sort((a, b) => a - b);
+      const guard = await guardReceipt(
+        `baserow.rows.batch_delete:${args.table_id}:${sortedRowIds.join(',')}`,
+        args?.authorization_receipt
+      );
       if (!guard.ok) {
         result = guard.challenge;
         break;
@@ -299,6 +316,8 @@ export async function handleRowTools(
         table_id: args.table_id,
         row_ids: args.row_ids
       });
+      // Consume the receipt only AFTER the batch delete succeeds.
+      guard.commit();
       result = {
         success: true,
         message: `${args.row_ids.length} rows deleted successfully`,

@@ -24,16 +24,26 @@ function loadModule(): Promise<RequireReceiptModule> {
 const consumedReceiptIds = new Set<string>();
 
 export type GuardResult =
-  | { ok: true; receiptId: string }
+  | { ok: true; receiptId: string; commit: () => void }
   | { ok: false; challenge: Record<string, unknown> };
 
 /**
  * Demand a verifiable EMILIA authorization receipt before an irreversible action.
  *
- * Returns the receipt id to record on success, or a machine-readable
- * Receipt Required challenge (HTTP 428 shape) the agent can act on — the MCP
- * tool-result equivalent of answering 428. This is portable accountability
- * evidence the service keeps for its own liability; it is not auth or permissions.
+ * On success, returns the receipt id PLUS a `commit()` callback. The receipt is
+ * NOT marked consumed until the caller invokes `commit()` — which the caller MUST
+ * do only AFTER the irreversible action has actually succeeded. If the action
+ * throws, `commit()` is never called and the approval stays retryable (it was
+ * never spent on a delete that didn't happen). Replay protection is enforced at
+ * verify time (not-already-consumed check below), so a receipt can never drive
+ * two deletes even before commit.
+ *
+ * On failure, returns a machine-readable Receipt Required challenge (HTTP 428
+ * shape) the agent can act on — the MCP tool-result equivalent of answering 428.
+ * Rejection detail is sanitized to a minimal `{ rejected: { reason } }` shape so
+ * no signer, subject, or library internals leak to the caller. This is portable
+ * accountability evidence the service keeps for its own liability; it is not auth
+ * or permissions.
  */
 export async function guardReceipt(
   action: string,
@@ -68,7 +78,8 @@ export async function guardReceipt(
       ok: false,
       challenge: {
         ...receiptChallenge(action, `Receipt rejected: ${verified.reason}.`, challengeOpts),
-        rejected: verified
+        // Sanitized: never echo the full verified object (signer/subject/detail).
+        rejected: { reason: verified.reason ?? 'receipt_invalid' }
       }
     };
   }
@@ -78,11 +89,19 @@ export async function guardReceipt(
       ok: false,
       challenge: {
         ...receiptChallenge(action, 'Receipt already consumed (replay refused).', challengeOpts),
-        rejected: { ok: false, reason: 'receipt_replayed' }
+        rejected: { reason: 'receipt_replayed' }
       }
     };
   }
 
-  consumedReceiptIds.add(verified.receipt_id);
-  return { ok: true, receiptId: verified.receipt_id };
+  const receiptId = verified.receipt_id;
+  return {
+    ok: true,
+    receiptId,
+    // Consume-after-success: the caller commits ONLY after the irreversible
+    // action succeeds. Idempotent — a double-commit is a no-op.
+    commit: () => {
+      consumedReceiptIds.add(receiptId);
+    }
+  };
 }
