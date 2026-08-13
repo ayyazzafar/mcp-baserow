@@ -1,3 +1,5 @@
+
+
 # Baserow MCP Server
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue.svg)](https://modelcontextprotocol.io)
@@ -99,7 +101,7 @@ BASEROW_API_TOKEN=Token_your_database_token_here
    {
      "mcpServers": {
        "baserow": {
-         "command": "/path/to/mcp-baserow/start.sh"
+         "command": "node /path/to/mcp-baserow/dist/index.js"
        }
      }
    }
@@ -115,7 +117,7 @@ BASEROW_API_TOKEN=Token_your_database_token_here
    ```json
    {
      "baserow": {
-       "command": "/path/to/mcp-baserow/start.sh"
+       "command": "node /path/to/mcp-baserow/dist/index.js"
      }
    }
    ```
@@ -129,7 +131,7 @@ BASEROW_API_TOKEN=Token_your_database_token_here
    ```json
    {
      "baserow": {
-       "command": "/path/to/mcp-baserow/start.sh"
+       "command": "node /path/to/mcp-baserow/dist/index.js"
      }
    }
    ```
